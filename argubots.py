@@ -74,36 +74,66 @@ akiko = KialoAgent("Akiko", Kialo(glob.glob("data/*.txt")))   # get the Kialo da
 # Define your own additional argubots here!
 ###########################################
 
+from rank_bm25 import BM25Okapi as BM25_Index 
+import numpy as np
+
 class AkikiBot(KialoAgent):
-    """ KialoAgent subclasses the Agent class. It responds with a relevant claim from
-    a Kialo database.  No LLM is used."""
-    
-    def __init__(self, name: str, kialo: Kialo, threshold: float):
+
+    def __init__(self, name: str, kialo: Kialo, kind='all'):
         super().__init__(name, kialo)
-        self.threshold = threshold
-                
+        self.kind = kind
+
     def response(self, d: Dialogue) -> str:
 
-        if len(d) == 0:   
-            # First turn.  Just start with a random claim from the Kialo database.
-            claim = self.kialo.random_chain()[0]
-        else:
-            previous_turn = d[-1]['content']  # previous turn from user
-            neighbors = self.kialo.closest_claims(previous_turn, n=3, kind='has_cons')
-            simularity = neighbors[0].get_score if neighbors else 0.0
-            self.kialo.bm25.]
-            user_context = "\n".join([f"{x['speaker']}: {x['content']}" for x in d])
-            # Pick one of the top-3 most similar claims in the Kialo database,
-            # restricting to the ones that list "con" arguments (counterarguments).
-            assert neighbors, "No claims to choose from; is Kialo data structure empty?"
-            neighbor = random.choice(neighbors)
-            log.info(f"[black on bright_green]Chose similar claim from Kialo:\n{neighbor}[/black on bright_green]")
-            
-            # Choose one of its "con" arguments as our response.
-            claim = random.choice(self.kialo.cons[neighbor])
+        # first
+        if len(d) == 0:
+            chain = self.kialo.random_chain()
+            return chain[0]
+
+        # from kialo
+        if self.kind not in self.kialo.claims:
+            if self.kind == 'all':
+                self.kialo.claims[self.kind] = [claim for claim in self.kialo.parents]
+            elif self.kind == 'has_cons':
+                self.kialo.claims[self.kind] = [c for c in self.kialo.parents if self.kialo.cons[c]]
+            elif self.kind == 'has_pros':
+                self.kialo.claims[self.kind] = [c for c in self.kialo.parents if self.kialo.pros[c]]
+            else:
+                raise ValueError(f"Unknown claim kind: {self.kind}")
+
+            if self.kialo.claims[self.kind]:
+                self.kialo.bm25[self.kind] = BM25_Index(
+                    self.kialo.claims[self.kind], tokenizer=self.kialo.tokenizer
+                )
+
+        # recency = weighting
+        weights = list(range(1, len(d) + 1))
+
+        weighted_tokens = []
+        for turn, w in zip(d, weights):
+            tokens = self.kialo.tokenizer(turn["content"])
+            weighted_tokens.extend(tokens * w)
+
+        bm25 = self.kialo.bm25[self.kind]
+        candidates = bm25.get_top_n(weighted_tokens, self.kialo.claims[self.kind], n=3)
+
+        #if no good candidates, just use last turn
+        if not candidates:
+            log.info("nothing good :(")
+            last_tokens = self.kialo.tokenizer(d[-1]["content"])
+            candidates = bm25.get_top_n(last_tokens, self.kialo.claims[self.kind], n=3)
+
+        best_claim = random.choice(candidates)
+        log.info(f"[black on bright_green]Chose similar claim from Kialo:\n{best_claim}[/black on bright_green]")
         
-        return claim   
-    
-akiki = KialoAgent("Akiki", Kialo(glob.glob("data/*.txt")))
+        if best_claim in self.kialo.cons and self.kialo.cons[best_claim]:
+            best = random.choice(self.kialo.cons[best_claim])
+            return best
+
+        # if no good con, return claim
+        return best_claim
+
+
+akiki = AkikiBot("Akiki", Kialo(glob.glob("data/*.txt")))
 
 
