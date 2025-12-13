@@ -251,3 +251,63 @@ class RAGAgent(Agent):
         return out.strip()
 
 aragorn = RAGAgent("Aragorn", Kialo(glob.glob("data/*.txt")))
+
+class AwsomAgent(Agent):
+    def __init__(self, name: str, temperature: float = 0.6):
+        self.name = name
+
+        self.planner = LLMAgent(
+            name=f"{name}-Planner",
+            temperature=0,
+            system=(
+                "You analyze a debate turn.\n"
+                "Given the dialogue so far, identify:\n"
+                "1) The user's main claim or stance\n"
+                "2) One effective way to challenge or broaden it\n\n"
+                "Respond with a short plan (2–3 bullet points).\n"
+            ),
+            speaker_names=False,
+            compress=False
+        )
+
+        self.speaker = LLMAgent(
+            name=name,
+            temperature=temperature,
+            system=(
+                "You are Awsom, an intelligent and confident debate partner.\n"
+                "Goal: challenge the user's position thoughtfully and clearly.\n\n"
+                "Instructions:\n"
+                "- Take a clear position that pushes back on the user.\n"
+                "- Stay focused on the topic.\n"
+                "- Be respectful but not overly cautious.\n"
+                "- Reply in 1–2 sentences.\n"
+            ),
+            speaker_names=False,
+            compress=False
+        )
+
+    def response(self, d: Dialogue, **kwargs) -> str:
+        if len(d) == 0:
+            return "What’s an issue you feel strongly about?"
+
+        plan = self.planner.ask_quietly(
+            d,
+            speaker="Analyst",
+            question="Analyze the user's stance and plan a challenge."
+        )
+
+        prompt = (
+            f"PRIVATE PLAN (do not reveal explicitly):\n{plan}\n\n"
+            "Now write Awsom's reply to the user."
+        )
+
+        out = self.speaker.ask_quietly(
+            d,
+            speaker="User",
+            question=prompt,
+            **kwargs
+        )
+
+        return out.strip()
+
+awsom = AwsomAgent("Awsom")
