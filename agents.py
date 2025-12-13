@@ -284,7 +284,7 @@ class LLMAgent(Agent):
             log.info(f"Response from LLM:\n[black on white]{content}[/black on white]")
 
         return content
-
+    
 class CharacterAgent(LLMAgent):
     """An LLM agent that simulates how a specific Character would converse.
     

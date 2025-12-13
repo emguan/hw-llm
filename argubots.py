@@ -4,6 +4,7 @@ They will be evaluated using methods in `evaluate.py`.
 We've included a few to get your started."""
 
 import logging
+from openai import OpenAI
 from rich.logging import RichHandler
 from pathlib import Path
 import random
@@ -109,7 +110,6 @@ class AkikiBot(KialoAgent):
                 tokenizer=self.kialo.tokenizer
             )
 
-        # ---------- speaker-aware + recency-weighted query ----------
         weighted_tokens = []
 
         USER_WEIGHT = 2.3
@@ -133,7 +133,6 @@ class AkikiBot(KialoAgent):
             n=3
         )
 
-        # Fallback: last turn only
         if not candidates:
             log.info("Fallback to last turn only")
             last_tokens = self.kialo.tokenizer(d[-1]["content"])
@@ -148,7 +147,6 @@ class AkikiBot(KialoAgent):
             f"[black on bright_green]Chose similar claim from Kialo:\n{best_claim}[/black on bright_green]"
         )
 
-        # Prefer counterarguments
         if best_claim in self.kialo.cons and self.kialo.cons[best_claim]:
             return random.choice(self.kialo.cons[best_claim])
 
@@ -157,4 +155,99 @@ class AkikiBot(KialoAgent):
 
 akiki = AkikiBot("Akiki", Kialo(glob.glob("data/*.txt")))
 
+class RAGAgent(Agent):
 
+    def __init__(self, name: str, kialo: Kialo, *, kind: str = "has_cons",
+                 n_retrieved: int = 3, n_neighbors_each: int = 2,
+                 temperature: float = 0.7):
+        self.name = name
+        self.kialo = kialo
+        self.kind = kind
+        self.n_retrieved = n_retrieved
+        self.n_neighbors_each = n_neighbors_each
+
+        self.query_llm = LLMAgent(
+            name=f"{name}-Query",
+            temperature=0,
+            system=(
+                "You rewrite the user's last message as an explicit, standalone claim.\n"
+                "Rules:\n"
+                "- Use the full dialogue for context.\n"
+                "- Output 1–2 sentences.\n"
+            ),
+            speaker_names=False,
+            compress=False
+        )
+
+        self.rag_llm = LLMAgent(
+            name=name,
+            temperature=temperature,
+            system=(
+                "You are Aragorn, an intelligent debate partner.\n"
+                "Goal: respond to the user's last turn thoughtfully and stay on topic.\n"
+                "You will be given:\n"
+                "1) The dialogue so far\n"
+                "2) A short EVIDENCE document with relevant claims and counterarguments\n\n"
+                "Instructions:\n"
+                "- Use the EVIDENCE to support your response, but do not quote it verbatim.\n"
+                "- If the evidence is mixed, acknowledge uncertainty.\n"
+                "- Reply in 1–2 sentences.\n"
+                "- Be polite and specific.\n"
+            ),
+            speaker_names=False,
+            compress=False
+        )
+
+    def _user_last_turn(self, d: Dialogue) -> str:
+        return d[-1]["content"] if len(d) else ""
+
+    def _make_query(self, d: Dialogue) -> str:
+        prompt = (
+            "Rewrite the user's last message as an explicit standalone claim.\n"
+            "Output only the rewritten claim (no labels)."
+        )
+        return self.query_llm.ask_quietly(d, speaker="User", question=prompt).strip()
+
+    def _retrieve_doc(self, query: str) -> str:
+        neighbors = self.kialo.closest_claims(query, n=self.n_retrieved, kind=self.kind)
+        if not neighbors:
+            neighbors = self.kialo.closest_claims(query, n=self.n_retrieved, kind="all")
+
+        lines = []
+        lines.append("EVIDENCE (Kialo claims; treat as curated talking points):")
+
+        for i, claim in enumerate(neighbors, start=1):
+            pros = self.kialo.pros.get(claim, [])[: self.n_neighbors_each]
+            cons = self.kialo.cons.get(claim, [])[: self.n_neighbors_each]
+
+            lines.append(f"\n[{i}] Topic claim: {claim}")
+
+            if pros:
+                lines.append("  Pros:")
+                for p in pros:
+                    lines.append(f"   - {p}")
+            if cons:
+                lines.append("  Cons:")
+                for c in cons:
+                    lines.append(f"   - {c}")
+
+        return "\n".join(lines)
+
+    def response(self, d: Dialogue, **kwargs) -> str:
+        if len(d) == 0:
+            return self.kialo.random_chain()[0]
+
+        explicit_claim = self._make_query(d)
+
+        evidence_doc = self._retrieve_doc(explicit_claim)
+
+        rag_prompt = (
+            f"USER CLAIM (paraphrased): {explicit_claim}\n\n"
+            f"{evidence_doc}\n\n"
+            "Now write Aragorn's next reply to the user."
+        )
+
+        out = self.rag_llm.ask_quietly(d, speaker="User", question=rag_prompt, **kwargs)
+        return out.strip()
+
+aragorn = RAGAgent("Aragorn", Kialo(glob.glob("data/*.txt")))
