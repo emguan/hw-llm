@@ -58,5 +58,36 @@ trollFace = Character("TrollFace", ["English"],
                 conversation_starters=["Do you think J.D. Vance is a good vice-president?",
                                        "Do you think Kamala Harris was a good vice-president?"])
 
+shorty = Character("Shorty", ["English"], 
+                "an argumentative person with short, 1-5 word responses.",
+                conversational_style="Professional but uses 3-10 word argumentative statements.",
+                conversation_starters=["Respond to one of the following: Should COVID-19 Vaccines be Mandatory?",
+                                       "All Humans Should Be Vegan.",
+                                       "Have authoritarian governments handled COVID-19 better than others?",
+                                       "Is Biden an incompetent president?",
+                                       "Is Joe Biden better than Donald Trump?",
+                                       "Should enforcing a vegan diet on children be condemned as child abuse?",
+                                       "Should people go vegan if they can?",
+                                       "Should schools close during the Covid-19 pandemic",
+                                       "Is Eating Meat Wrong?",
+                                       "Was Trump a good president?",
+                                       "Was Donald Trump a Good President?"])
+
+question = """
+How well did the ARGUBOT stay on the original topic of the conversation?
+
+If the other speaker gave short or help-poor replies (e.g., "Yes", "No"),
+did the ARGUBOT still stay anchored to the same topic?
+
+1 = frequently changed topic or derailed
+2 = often drifted off topic
+3 = mostly on topic with some drift
+4 = stayed on topic with rare drift
+5 = perfectly stayed on topic throughout
+"""
+judge_wise = Character("Judge Wise", ["English"], 
+                "A fair and unbiased judge who is consistent in their scoring.",
+                conversational_style="Explains all logical processes before reaching their scoring conclusion.")
+
 # You will evaluate your argubots against these characters.
 devset = [bob, cara, darius, eve, trollFace]

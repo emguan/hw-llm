@@ -312,6 +312,7 @@ class CharacterAgent(LLMAgent):
         system = (f"Your name is {character.name}{langprefs}. "
                   f"You are {character.persona}. "
                   f"{character.conversational_style}"
+                  f"You're conversation starters are {character.conversation_starters}."
                   f"\n\nReply in 1 sentence. Don't repeat your previous points.")
 
         # Now initialize self.
@@ -418,3 +419,13 @@ for name, value in vars(characters).items():    # top-level attributes of the ch
         char: Character = value                         # get that Character
         agent = CharacterAgent(char)                    # make a CharacterAgent (might duplicate one from devset)
         vars()[name] = agent                            # assign it to a top-level var in current module
+
+judge = EvaluationAgent(
+    characters.judge_wise,
+    name="Judge Wise",
+    temperature=0,
+    speaker_names=False,
+    compress=False
+)
+
+shorty = CharacterAgent(characters.shorty, temperature=1)

@@ -85,52 +85,73 @@ class AkikiBot(KialoAgent):
 
     def response(self, d: Dialogue) -> str:
 
-        # first
+        # First turn
         if len(d) == 0:
-            chain = self.kialo.random_chain()
-            return chain[0]
+            return self.kialo.random_chain()[0]
 
-        # from kialo
+        # Build claim pool + BM25 index if needed
         if self.kind not in self.kialo.claims:
             if self.kind == 'all':
-                self.kialo.claims[self.kind] = [claim for claim in self.kialo.parents]
+                self.kialo.claims[self.kind] = list(self.kialo.parents)
             elif self.kind == 'has_cons':
-                self.kialo.claims[self.kind] = [c for c in self.kialo.parents if self.kialo.cons[c]]
+                self.kialo.claims[self.kind] = [
+                    c for c in self.kialo.parents if self.kialo.cons[c]
+                ]
             elif self.kind == 'has_pros':
-                self.kialo.claims[self.kind] = [c for c in self.kialo.parents if self.kialo.pros[c]]
+                self.kialo.claims[self.kind] = [
+                    c for c in self.kialo.parents if self.kialo.pros[c]
+                ]
             else:
                 raise ValueError(f"Unknown claim kind: {self.kind}")
 
-            if self.kialo.claims[self.kind]:
-                self.kialo.bm25[self.kind] = BM25_Index(
-                    self.kialo.claims[self.kind], tokenizer=self.kialo.tokenizer
-                )
+            self.kialo.bm25[self.kind] = BM25_Index(
+                self.kialo.claims[self.kind],
+                tokenizer=self.kialo.tokenizer
+            )
 
-        # recency = weighting
-        weights = list(range(1, len(d) + 1))
-
+        # ---------- speaker-aware + recency-weighted query ----------
         weighted_tokens = []
-        for turn, w in zip(d, weights):
+
+        USER_WEIGHT = 2.3
+        BOT_WEIGHT = 1
+
+        for i, turn in enumerate(d):
+            base_weight = i + 1  # recency
             tokens = self.kialo.tokenizer(turn["content"])
-            weighted_tokens.extend(tokens * w)
+
+            if turn.get("role") == "user":
+                weight = base_weight * USER_WEIGHT
+            else:
+                weight = base_weight * BOT_WEIGHT
+
+            weighted_tokens.extend(tokens * weight)
 
         bm25 = self.kialo.bm25[self.kind]
-        candidates = bm25.get_top_n(weighted_tokens, self.kialo.claims[self.kind], n=3)
+        candidates = bm25.get_top_n(
+            weighted_tokens,
+            self.kialo.claims[self.kind],
+            n=3
+        )
 
-        #if no good candidates, just use last turn
+        # Fallback: last turn only
         if not candidates:
-            log.info("nothing good :(")
+            log.info("Fallback to last turn only")
             last_tokens = self.kialo.tokenizer(d[-1]["content"])
-            candidates = bm25.get_top_n(last_tokens, self.kialo.claims[self.kind], n=3)
+            candidates = bm25.get_top_n(
+                last_tokens,
+                self.kialo.claims[self.kind],
+                n=3
+            )
 
         best_claim = random.choice(candidates)
-        log.info(f"[black on bright_green]Chose similar claim from Kialo:\n{best_claim}[/black on bright_green]")
-        
-        if best_claim in self.kialo.cons and self.kialo.cons[best_claim]:
-            best = random.choice(self.kialo.cons[best_claim])
-            return best
+        log.info(
+            f"[black on bright_green]Chose similar claim from Kialo:\n{best_claim}[/black on bright_green]"
+        )
 
-        # if no good con, return claim
+        # Prefer counterarguments
+        if best_claim in self.kialo.cons and self.kialo.cons[best_claim]:
+            return random.choice(self.kialo.cons[best_claim])
+
         return best_claim
 
 
